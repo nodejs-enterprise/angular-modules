@@ -185,8 +185,10 @@ angular.module('neDirectives',['neObject'])
         }
     };
 }])
-.service('neFileDropArea', [function(){
-    this.bind = function(elm, afterDrop, readAs) { // readAsDataURL, readAsText, readAsArrayBuffer
+.service('neFileDropArea', ['$q', function($q){
+    'use strict';
+    
+	this.bind = function(elm, afterDrop, readAs, onError) { // readAsDataURL, readAsText, readAsArrayBuffer
         var dropbox = elm[0];
         var dragover = false;
         
@@ -214,39 +216,88 @@ angular.module('neDirectives',['neObject'])
             elm.removeClass('ne-dragover');
             dragover = false;
         }
+
+		function getFilePromise(entry) {
+			return $q(function(resolve, reject){
+				entry.file(resolve, reject);
+			});
+		}
+		
+		function readEntriesPromise(directoryReader) {
+			return $q(function(resolve, reject){
+				directoryReader.readEntries(resolve, reject);
+			});
+		}
+
+		function getFilesRecursively(entry){
+			if (entry.isFile) {	
+				return getFilePromise(entry);
+			} else if (entry.isDirectory) {
+				return readEntriesPromise(entry.createReader()).then(function(entries){
+					
+					var promises = [];
+					for (var i=0; i<entries.length; i++){
+						promises.push(getFilesRecursively(entries[i]));
+					}
+
+					return $q.all(promises).then(function(arrays){
+						return [].concat.apply([], arrays);
+					})
+				})
+			}
+		}
+
+		function getFilesPromise(e) {
+			var items = e.dataTransfer.items;
+
+			if (!items) return $q.resolve(e.dataTransfer.files);
+			if (!items[0].webkitGetAsEntry) return $q.resolve(e.dataTransfer.files);
+
+			var files = [];
+			var promises = [];
+			for (var i=0; i<items.length; i++) {
+				promises.push(getFilesRecursively(items[i].webkitGetAsEntry()));
+			}
+
+			return $q.all(promises).then(function(arrays){
+				files = [].concat.apply([], arrays);
+				return $q.resolve(files);
+			})
+		}
           
         function onDrop(e) {
             removeDragClass(e);
-          
-            var readFileSize = 0;
-            var files = e.dataTransfer.files;
+
+			getFilesPromise(e).then(function(files){
+				var readFileSize = 0;
+				var file = files[0];
+				if(!file) return;
+				readFileSize += file.fileSize;
             
-            var file = files[0];
-            if(!file) return;
-            readFileSize += file.fileSize;
+				// Only process image files.
+				// var imageType = /image.*/;
+				// if (!file.type.match(imageType)) return;
             
-            // Only process image files.
-            // var imageType = /image.*/;
-            // if (!file.type.match(imageType)) return;
-            
-            if(readAs){
-                var reader = new FileReader();
-                reader.onerror = function(e) {
-                    alert('Cannot read file: ' + e.target.error);
-                };
+				if(readAs){
+					var reader = new FileReader();
+					reader.onerror = function(e) {
+						alert('Cannot read file: ' + e.target.error);
+					};
                 
-                // Create a closure to capture the file information.
-                reader.onload = (function(aFile) {
-                    return function(evt) {
-                        afterDrop(evt.target.result);
-                    };
-                })(file);
+					// Create a closure to capture the file information.
+					reader.onload = (function(aFile) {
+						return function(evt) {
+							afterDrop(evt.target.result);
+						};
+					})(file);
                 
-                // Read in the image file as a data url.
-                reader[readAs](file);
-                // readAsDataURL, readAsText, readAsArrayBuffer
-            }
-            else afterDrop(files);
+					// Read in the image file as a data url.
+					reader[readAs](file);
+					// readAsDataURL, readAsText, readAsArrayBuffer
+				}
+				else afterDrop(files);
+			})
+			.catch(onError);
         }
         
         return {
@@ -267,23 +318,30 @@ angular.module('neDirectives',['neObject'])
 .directive('neFileDropArea',['neFileDropArea', function(fileDropArea) {
     return {
         restrict: 'A',
+		scope: {
+			'onError': '&neFileDropOnError',
+			'onDrop': '&neFileDrop'
+		},
         link: function(scope, element, attrs, ctrl) {
-            var typeRegexp = attrs.neFileDropArea ? new RegExp(attrs.neFileDropArea) : null;
+            var typeRegexp = attrs.dmsFileDropArea ? new RegExp(attrs.dmsFileDropArea) : null;
             
             element.on('load', function(){
                 scope.setNaturalHeight(this.naturalHeight);
                 scope.setNaturalWidth(this.naturalWidth);
             });
-            
+
+			var onError = function(error){
+				scope.onError({error: error});
+			}
+
             var area = fileDropArea.bind(element, function(files){
                 var filesArray = [];
-                var onDrop = attrs.neFileDrop || attrs.neFilesDrop || attrs.ondrop;
                 for(var i=0;i<files.length;i++) {
                     if(!typeRegexp || files[i].type.match(typeRegexp)) filesArray.push(files[i]);
                 }
-                scope.files = filesArray;
-                if(filesArray.length && onDrop) scope.$apply(onDrop);
-            });
+                
+                if(filesArray.length && scope.onDrop) scope.onDrop({files: filesArray});
+            }, null, onError);
             scope.$on('$destroy', area.unbind);
         }
     };
