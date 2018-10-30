@@ -1,4 +1,3 @@
-
 /**
  *                                                  NE NOTIFICATIONS
  * ***************************************************************************************************************************
@@ -30,7 +29,12 @@ angular.module('neNotifications',['neLoading'])
     notifications.show = 
     notifications.create = function(type, title, text, icon, timeout) {
         var opts = {};
-        
+
+        // create(type, title, text, timeout, stacktrace)
+        if(arguments.length === 5 && typeof arguments[4] === 'string'){
+            stacktrace = arguments[4];
+        }
+
         // create(type, title, text, timeout)
         if(arguments.length === 4 && typeof arguments[3] !== 'string'){
             timeout = arguments[3];
@@ -75,6 +79,10 @@ angular.module('neNotifications',['neLoading'])
         function destroy(){
             notifications.remove(this.id);
         }
+
+        function expand(){
+            this.expanded = !this.expanded;
+        }
         
         function update(n){
             n = n || {};
@@ -104,14 +112,17 @@ angular.module('neNotifications',['neLoading'])
             id: opts.id || nId,
             type: type,
             title: title,
+            stacktrace: stacktrace,
             icon: icon,
             text: text,
             timeout: 0,
             fixed: false,
+            expanded: false,
             close: destroy,
             hide: destroy,
             destroy: destroy,
             update: update,
+            expand: expand,
             postpone: postpone
         });
         n.include = opts.bodyTemplateUrl || opts.include;
@@ -142,7 +153,7 @@ angular.module('neNotifications',['neLoading'])
     }
     
     notifications.error = 
-    notifications.danger = notifications.danger = function(title, text, timeout){
+    notifications.danger = notifications.danger = function(title, text, timeout, stacktrace){
         unifyArguments(title, text, timeout, arguments);
         return this.show('error', title, text, 'fa fa-exclamation-circle fa-2x', timeout!==undefined ? timeout : notifications.timeout * 2);
     };
@@ -196,40 +207,47 @@ angular.module('neNotifications',['neLoading'])
 }])
 .run(['$templateCache', function($templateCache){
     $templateCache.put('neNotifications/container.html',
-                       '<div class="notification-container" ng-controller="NeNotificationsCtrl">'+
-                       '    <div ng-show="true" class="ng-hide">'+
-                       '        <div ng-repeat="n in notifications" class="alert alert-{{n.type}}" ng-class="{expanded:n.expanded}" ng-click="n.fixed=true;n.postpone()" ng-mouseenter="n.postpone()" ng-mouseleave="n.postpone(1000)">'+
-                       '            <i class="alert-pin fa fa-thumb-tack" ng-if="n.fixed"></i>'+
-                       '            <i class="alert-expand fa" ng-class="{\'fa-expand\':!n.expanded,\'fa-compress\':n.expanded}" ng-click="n.expanded=!n.expanded;n.fixed=true"></i>'+
-                       '            <i class="alert-close fa fa-times" ng-click="n.close()"></i>'+
-                       '            <table style="width:100%;word-wrap:break-word" class="table-fixed">'+
-                       '                <tr>'+
-                       '                    <td style="width:40px">'+
-                       '                        <i class="{{n.icon}}"></i>'+
-                       '                    </td>'+
-                       '                    <td style="padding:0px 5px">'+
-                       '                        <div class="notification-content" ng-if="!n.include">'+
-                       '                            <strong ng-if="n.title"><span ne-bind-html="{{n.title|translate}}"></span><br></strong>'+
-                       '                            <span ne-bind-html="{{n.text|translate}}"></span>'+
-                       '                        </div>'+
-                       '                        <div ng-if="n.include" ng-include="n.include"></div>'+
-                       '                    </td>'+
-                       '                </tr>'+
-                       '            </table>'+
-                       '        </div>'+
-                       '        <div class="alert alert-default" ng-show="loading" ng-controller="NeLoadingCtrl">'+
-                       '            <table style="width:100%">'+
-                       '                <tr>'+
-                       '                    <td style="width:40px">'+
-                       '                        <i class="fa fa-fw fa-spinner fa-spin fa-2x"></i>'+
-                       '                    </td>'+
-                       '                    <td style="padding:0px 5px">'+
-                       '                        <strong>{{::\'Loading...\'|translate}}</strong>'+
-                       '                    </td>'+
-                       '                </tr>'+
-                       '            </table>'+
-                       '        </div>'+
-                       '    </div>'+
-                       '</div>');
+                        '<div class="notification-container" ng-controller="NeNotificationsCtrl">'+
+                        '    <div ng-show="true" class="ng-hide">'+
+                        '        <div ng-repeat="n in notifications" class="alert alert-{{n.type}}" ng-click="n.fixed=true;n.postpone()" ng-mouseenter="n.postpone()" ng-mouseleave="n.postpone(1000)" '+
+                        '            ng-style="{\'position\': (n.expanded?\'fixed\':\'relative\'),\'top\': 0,\'left\': 0,\'right\': 0,\'bottom\': 0,\'width\': (n.expanded?\'unset\':\'300px\')}">'+
+                        '            <i class="alert-pin fa fa-thumb-tack" ng-if="n.fixed"></i>'+
+                        '            <i class="fa fa-fw fa-times" style="position: absolute;top: 8px;right: 8px;" ng-click="n.close()"></i>'+
+                        '            <i class="alert-expand fa" ng-click="n.expand()" style="position: absolute;top: 8px;right: 35px;" ng-class="n.expanded?\'fa-compress\':\'fa-expand\'"></i>'+
+                        '            <table style="width:100%;word-wrap:break-word;display: block;overflow: auto;height: 100%;margin-top: 15px;" class="table-fixed">'+
+                        '                <tr>'+
+                        '                    <td style="width:40px">'+
+                        '                        <i class="{{n.icon}}"></i>'+
+                        '                    </td>'+
+                        '                    <td style="padding:0px 5px">'+
+                        '                        <div ng-if="!n.include" style="overflow:auto;max-height:200px"  class="notification-content">'+
+                        '                            <strong ng-if="n.title"><span ne-bind-html="{{n.title|translate}}"></span><br></strong>'+
+                        '                            <span ne-bind-html="{{n.text|translate}}"></span>'+
+                        '                        </div>'+
+                        '                        <div ng-if="n.include" ng-include="n.include"></div>'+
+                        '                    </td>'+
+                        '                </tr>'+
+                        '                <tr ng-if="n.expanded">'+
+                        '                    <td></td>'+
+                        '                    <td style="padding:0px 5px">'+
+                        '                        <div class="notification-content">{{n.stacktrace}}</div>'+
+                        '                    </td>'+
+                        '                </tr>'+
+                        '            </table>'+
+                        '        </div>'+
+                        '        <div class="alert alert-default" ng-show="loading" ng-controller="NeLoadingCtrl">'+
+                        '            <table style="width:100%">'+
+                        '                <tr>'+
+                        '                    <td style="width:40px">'+
+                        '                        <i class="fa fa-fw fa-spinner fa-spin fa-2x"></i>'+
+                        '                    </td>'+
+                        '                    <td style="padding:0px 5px">'+
+                        '                        <strong>{{::\'Loading...\'|translate}}</strong>'+
+                        '                    </td>'+
+                        '                </tr>'+
+                        '            </table>'+
+                        '        </div>'+
+                        '    </div>'+
+                        '</div>'
+                       );
 }]);
-
